@@ -30,26 +30,25 @@ def get_dataset_and_vocab(
         w2v_path="/data/users/wangyuanzheng/projects/ucas_DL/4-text_classification/data/wiki_word2vec_50.bin",
         word_embedding_dim=50,
         word_min_count=5,
-        train_percent=1.,
-        valid_percent=1.,
-        test_percent=1.,
-        truncate_len=120,
+        train_percent=.01,
+        valid_percent=.01,
+        test_percent=.01,
+        # truncate_len=120,
         pad_token="</s>",
         unk_token="<unk>",
 ) -> Tuple[TabularDataset, TabularDataset, TabularDataset, Vocab]:
 
-    # TextCNN的输入，需要是定长的
-    def truncate(sentence):
-        sentence += [pad_token] * truncate_len
-        sentence = sentence[:truncate_len]
-        return sentence
+    # # TextCNN的输入，需要是定长的
+    # def truncate(sentence):
+    #     sentence += [pad_token] * truncate_len
+    #     sentence = sentence[:truncate_len]
+    #     return sentence
 
     # 创建fields
     # 与Field相比，LabelField不会额外添加<unk> <pad>等token
     Field_LABEL = LabelField(sequential=False, dtype=torch.long, use_vocab=False, preprocessing=int)
-    # Field_TEXT = Field(sequential=True, use_vocab=True, lower=False, pad_token=pad_token, unk_token=unk_token, tokenize=lambda s: s.split(" "))
-    Field_TEXT = Field(sequential=True, use_vocab=True, lower=False, pad_token=pad_token, unk_token=unk_token,
-                       tokenize=lambda s: s.split(" "), preprocessing=truncate, batch_first=True)  # preprocessing在tokenize之后
+    Field_TEXT = Field(sequential=True, use_vocab=True, lower=False, pad_token=pad_token, unk_token=unk_token, tokenize=lambda s: s.split(" "), batch_first=True)
+    # Field_TEXT = Field(sequential=True, use_vocab=True, lower=False, pad_token=pad_token, unk_token=unk_token, tokenize=lambda s: s.split(" "), preprocessing=truncate, batch_first=True)  # preprocessing在tokenize之后
 
     fields = [
         ('label', Field_LABEL),

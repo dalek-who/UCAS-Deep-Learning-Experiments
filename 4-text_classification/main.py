@@ -1,5 +1,6 @@
 from typing import Tuple, Union, NoReturn, Dict, List
 import torch
+from torch import Tensor
 from torch import nn
 from torch import optim
 from torch.optim import lr_scheduler
@@ -23,33 +24,25 @@ from torchtext.data import Iterator, BucketIterator
 from collections import defaultdict
 
 try:
-    from .models.AttentionSeq2Seq import AttentionSeq2Seq
-    from .models.AttentionSeq2SeqMultiLayer import AttentionSeq2SeqMultiLayer
-    from .models.LanguageModel import LanguageModel
-    from .config import ConfigTrain, ConfigFiles, ConfigModel_AttentionSeq2Seq, ConfigModel_AttentionSeq2SeqMultiLayer, ConfigModel_LanguageModel
+    from .models.TextCNN import TextCNN
+    from .config import ConfigTrain, ConfigFiles, ConfigModel_TextCNN
     from .utils import is_jsonable, init_logger, fig_confusion_matrix, fig_images
-    from .dataset import get_dataset_and_vocab, get_dataset_and_vocab_language_model
+    from .dataset import get_dataset_and_vocab
     from .ExperimentLogWriter import ExperimentLogWriter
 except:
-    from models.AttentionSeq2Seq import AttentionSeq2Seq
-    from models.AttentionSeq2SeqMultiLayer import AttentionSeq2SeqMultiLayer
-    from models.LanguageModel import LanguageModel
-    from config import ConfigTrain, ConfigFiles, ConfigModel_AttentionSeq2Seq, ConfigModel_AttentionSeq2SeqMultiLayer, ConfigModel_LanguageModel
+    from models.TextCNN import TextCNN
+    from config import ConfigTrain, ConfigFiles, ConfigModel_TextCNN
     from utils import is_jsonable, init_logger, fig_confusion_matrix, fig_images
-    from dataset import get_dataset_and_vocab, get_dataset_and_vocab_language_model
+    from dataset import get_dataset_and_vocab
     from ExperimentLogWriter import ExperimentLogWriter
 
 
 MODELS = {
-    "AttentionSeq2Seq": AttentionSeq2Seq,
-    "AttentionSeq2SeqMultiLayer": AttentionSeq2SeqMultiLayer,
-    "LanguageModel": LanguageModel,
+    "TextCNN": TextCNN,
 }
 
 MODEL_CONFIGS = {
-    "AttentionSeq2Seq": ConfigModel_AttentionSeq2Seq,
-    "AttentionSeq2SeqMultiLayer": ConfigModel_AttentionSeq2SeqMultiLayer,
-    "LanguageModel": ConfigModel_LanguageModel,
+    "TextCNN": ConfigModel_TextCNN,
 }
 
 # 例外处理流程
@@ -83,7 +76,7 @@ class Experiment(object):
         self._set_seed()  # 设定随机种子必须在初始化model等所有步骤之前
         self.device: torch.device = self._get_device()
 
-        self.iter_train, self.iter_train_eval, self.iter_valid, self.iter_test, self.iter_predict, self.vocab_input, self.vocab_output = self._get_data_iter()
+        self.iter_train, self.iter_train_eval, self.iter_valid, self.iter_test, self.vocab = self._get_data_iter()
 
         self.writer: ExperimentLogWriter = ExperimentLogWriter(ct=self.ct, cf=self.cf, cm=self.cm, args=self.args)  # 不要和下面的代码换位。因为整个输出目录都是ExperimentLogWriter创建的
         self.writer.back_up_code()  # 备份代码
@@ -99,7 +92,7 @@ class Experiment(object):
         self._check_experiment_and_config()  # 检查实例化的对象和Config声明中的是否一致
 
     @_wrap_handle_exception
-    def do_predict(self, iter_data, has_label: bool, write_file: bool=False) -> Tuple[np.ndarray, np.ndarray, float, int, List[str]]:
+    def do_predict(self, iter_data, has_label: bool) -> Tuple[np.ndarray, np.ndarray, float, int]:
         self.model.eval()
         if next(self.model.parameters()).device != self.device:
             self.model.to(self.device)
@@ -107,31 +100,22 @@ class Experiment(object):
         label_true, label_pred = [], []  # 真实的tag id序列，预测的tag id序列，单词原文序列
         loss_total = 0.
         data_num = 0
-        poem_predict_list = []
         for bid, batch in enumerate(tqdm(iter_data, desc="Eval")):
             with torch.no_grad():
-                loss, batch_size, src, trg, trg_for_loss, pred_score, pred_score_for_loss = \
+                loss, batch_size, label, text, pred_score = \
                     self._forward_batch(batch, eval=True, has_label=has_label)
                 self.delete_log = False
             data_num += batch_size
             loss_total += loss.item() * batch_size
-            label_true += trg_for_loss.tolist()
-            label_pred += torch.argmax(pred_score_for_loss, dim=1).tolist()
-            # tags_raw_pred += [list(self.cm.vocab_tags.keys())[tag_id] for tag_id in chain.from_iterable(decode)]
-            trg_predict = pred_score[1:].argmax(dim=2)  # 第0个位置是全0向量，但是取argmax时可能得到任意一个index，于是将其跳过
-            poem_predict_list += self._tensor_to_poem(src, trg_predict)
+            label_true += label.tolist()
+            label_pred += torch.argmax(pred_score, dim=1).tolist()
         label_true, label_pred = np.array(label_true), np.array(label_pred)
-        # 写入预测结果文件
-        if write_file:
-            text = "\n".join(poem_predict_list)
-            with open(self.cf.out_predict_result, "w") as f:
-                f.write(text)
-        return label_true, label_pred, loss_total, data_num, poem_predict_list
+        return label_true, label_pred, loss_total, data_num
 
     @_wrap_handle_exception
-    def do_evaluation(self, iter_data) -> Tuple[Dict[str, int or float], List[str]]:
+    def do_evaluation(self, iter_data) -> Dict[str, int or float]:
         # Eval!
-        label_true, label_pred, loss_total, data_num, poem_predict_list = self.do_predict(iter_data, has_label=True)   # type: np.ndarray, np.ndarray, float, int, list
+        label_true, label_pred, loss_total, data_num = self.do_predict(iter_data, has_label=True)   # type: np.ndarray, np.ndarray, float, int
         metrics = self._metrics(y_true=label_true, y_pred=label_pred)
         # error_subset, error_index = self._error_subset_and_index(dataset=iter_data.dataset, y_true=label_true, y_pred=label_pred)  # 序列生成任务不适合用这个函数找错误样本
         result: dict = {
@@ -146,7 +130,7 @@ class Experiment(object):
             # "confusion_matrix": metrics["confusion_matrix"],  # 序列生成任务，因为词表很大，以字为单位的confusion_matrix过大
         }
         # return result, error_subset, error_index
-        return result, poem_predict_list
+        return result
 
     @_wrap_handle_exception
     def do_train(self, iter_train, iter_train_eval, iter_valid, load_best_after_train=True) -> NoReturn:
@@ -164,7 +148,7 @@ class Experiment(object):
         num_train_epochs = self.ct.num_train_epochs
         for epoch in tqdm(range(int(num_train_epochs)), desc="Train epoch"):
             for bid, batch in enumerate(tqdm(iter_train, desc="Train batch:")):
-                loss, batch_size, _, _, _, _, _ = self._forward_batch(batch, train=True, has_label=True)
+                loss, batch_size, _, _, _ = self._forward_batch(batch, train=True, has_label=True)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.ct.max_grad_norm)  # 梯度剪裁，把过大的梯度限定到固定值
                 lr = self.optimizer.state_dict()['param_groups'][0]['lr']
@@ -176,14 +160,12 @@ class Experiment(object):
                 self.delete_log = False
                 global_step += 1
                 self.lr_scheduler.step()  # Update learning rate each global step
-            eval_train, poem_predict_list_train = self.do_evaluation(iter_train_eval)
-            eval_valid, poem_predict_list_valid = self.do_evaluation(iter_valid)
+            eval_train = self.do_evaluation(iter_train_eval)
+            eval_valid = self.do_evaluation(iter_valid)
             eval_result = dict(**{k+"_train": v for k,v in eval_train.items()},
                                **{k+"_valid": v for k,v in eval_valid.items()})
             eval_result["epoch"] = epoch
             self.writer.draw_each_epoch(epoch=epoch, eval_result=eval_result, model=self.model)# 画图
-            self.writer.draw_examples(examples=poem_predict_list_train, graph_name=self.cf.tbx_train_predict, global_step=epoch)
-            self.writer.draw_examples(examples=poem_predict_list_valid, graph_name=self.cf.tbx_valid_predict, global_step=epoch)
             self._create_checkpoint(epoch=epoch, global_step=global_step, eval_result=eval_result)
         if load_best_after_train:
             if num_train_epochs>0:
@@ -253,9 +235,9 @@ class Experiment(object):
         avg_loss = 0.
         best_loss = 0.
         losses = []
-        log_lrs = []
+        lrs = []
         for batch_num, batch in enumerate(tqdm(iter_train, desc="Train batch:"), start=1):
-            loss, batch_size, _, _, _, _, _ = self._forward_batch(batch, train=True, has_label=True)
+            loss, batch_size, label, text, pred_score = self._forward_batch(batch, train=True, has_label=True)
             self.delete_log = False
             # Compute the smoothed loss
             avg_loss = beta * avg_loss + (1 - beta) * loss.item()
@@ -269,14 +251,14 @@ class Experiment(object):
                 best_loss = smoothed_loss
             # Store the values
             losses.append(smoothed_loss)
-            log_lrs.append(np.log10(lr))
+            lrs.append(lr)
             # Do the SGD step
             loss.backward()
             self.optimizer.step()
             # Update the lr for the next step
             lr *= mult
             self.optimizer.param_groups[0]['lr'] = lr
-        self.writer.draw_find_lr_plot(logs=log_lrs, losses=losses)
+        self.writer.draw_find_lr_plot(lrs=lrs, losses=losses)
         # return log_lrs, losses
 
     def success(self) -> NoReturn:
@@ -326,8 +308,7 @@ class Experiment(object):
                 new_name = "fail-" + self.cf.DIR_OUTPUT.name
             self.cf.DIR_OUTPUT.rename(parent_dir / new_name)
 
-    def _forward_batch(self, batch, train=False, eval=False, has_label=True):
-        fake_trg_len = 100
+    def _forward_batch(self, batch, train=False, eval=False, has_label=True) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         assert train ^ eval, (train, eval)  # train或eval有且只有一个可以为True
         if train:
             assert has_label
@@ -335,33 +316,19 @@ class Experiment(object):
         else:
             self.model.eval()
 
-        src, src_len = batch.input  # 创建iteration时已经放到device上了
-        # src = [src len, batch size], src_len = [batch size]
+        label, text = batch.label, batch.text  # 创建iteration时已经放到device上了
+        # label: [batch_size]
+        # text: [batch_size, seq_len]
 
-        batch_size = src.shape[1]
-        if has_label:
-            trg, trg_len = batch.output
-            # trg = [trg len, batch size]
+        batch_size = label.shape[0]
 
-        else:  # 为了无标签时predict生成的"伪标签"
-            trg = torch.ones(fake_trg_len, batch_size, dtype=torch.int64, device=self.device) * self.vocab_output[self.ct.output_init_token]
-            # trg = [trg len, batch size]
-            trg_len = torch.ones(batch_size, dtype=torch.int64, device=self.device) * fake_trg_len
-
-        teacher_forcing_ratio = self.ct.teacher_forcing_ratio if train else 0
-        pred_score = self.model(src, src_len, trg, torch.tensor(teacher_forcing_ratio))
-        # pred_score = [trg len, batch size, output vocab dim]
-
-        output_vocab_dim = pred_score.shape[-1]
-        pred_score_for_loss = pred_score[1:].view(-1, output_vocab_dim)
-        # pred_score_for_loss = [(trg len-1) * batch size, output vocab dim]
-        trg_for_loss = trg[1:].view(-1)
-        # trg_for_loss = [(trg len -1) * batch size]
+        pred_score = self.model(text)
+        # pred_score = [batch_size, num_labels]
 
         # predict时，用伪标签计算的loss并无意义，但是为了流程统一，也计算个loss
-        batch_mean_loss = F.cross_entropy(pred_score_for_loss, trg_for_loss, reduction='mean', ignore_index=self.vocab_output[self.ct.pad_token])
+        batch_mean_loss = F.cross_entropy(pred_score, label, reduction='mean')
         # batch_mean_loss = batch_mean_loss.mean() if self.args.n_gpu > 1 else batch_mean_loss
-        return batch_mean_loss, batch_size, src, trg, trg_for_loss, pred_score, pred_score_for_loss
+        return batch_mean_loss, batch_size, label, text, pred_score
 
     def _create_checkpoint(self, epoch, global_step, eval_result, fail=False) -> NoReturn:
         """
@@ -447,7 +414,7 @@ class Experiment(object):
         self.args.n_gpu = torch.cuda.device_count()
         return device
 
-    def _get_data_iter(self) -> Tuple[Iterator, Iterator, Iterator, Iterator, Iterator, Vocab, Vocab]:
+    def _get_data_iter(self) -> Tuple[Iterator, Iterator, Iterator, Iterator, Vocab]:
         """
         加载数据集，划分成训练、验证、测试、预测几个集合
         按batch_size等超参数包装成数据加载器DataLoader或Iterator（torchtext提供的nlp数据加载器）
@@ -461,57 +428,31 @@ class Experiment(object):
             vocab_output:  输出数据的词表(Vocab对象)
         """
         # 数据集预处理与加载
-        if self.ct.model_name in ("AttentionSeq2Seq", "AttentionSeq2SeqMultiLayer"):
-            dataset_train, dataset_valid, dataset_test, dataset_predict, vocab_input, vocab_output = get_dataset_and_vocab(
-                input_path=self.cf.in_train_valid_test_data_path,
-                preprocessed_data_path=self.cf.in_preprocessed_train_valid_test_data_path,
-                predict_input_path=self.cf.in_predict_data_path,
-                word_embedding_dim=self.ct.word_embedding_dim,
-                window_size=self.ct.window_size,
-                word_min_count=self.ct.word_min_count,
-                train_percent=self.ct.train_percent,
-                valid_percent=self.ct.valid_percent,
-                test_percent=self.ct.test_percent,
-                pad_token=self.ct.pad_token,
-                unk_token=self.ct.unk_token,
-                input_init_token=self.ct.input_init_token,
-                output_init_token=self.ct.output_init_token,
-                output_eos_token=self.ct.output_eos_token,
-            )
-        elif self.ct.model_name in ("LanguageModel", ):
-            dataset_train, dataset_valid, dataset_test, dataset_predict, vocab_input, vocab_output = get_dataset_and_vocab_language_model(
-                input_path=self.cf.in_train_valid_test_data_path,
-                preprocessed_data_path=self.cf.in_preprocessed_train_valid_test_data_path,
-                predict_input_path=self.cf.in_predict_data_path,
-                word_embedding_dim=self.ct.word_embedding_dim,
-                window_size=self.ct.window_size,
-                word_min_count=self.ct.word_min_count,
-                train_percent=self.ct.train_percent,
-                valid_percent=self.ct.valid_percent,
-                test_percent=self.ct.test_percent,
-                pad_token=self.ct.pad_token,
-                unk_token=self.ct.unk_token,
-                input_init_token=self.ct.input_init_token,
-                output_init_token=self.ct.output_init_token,
-                output_eos_token=self.ct.output_eos_token,
-            )
-        else:
-            raise ValueError
+        dataset_train, dataset_valid, dataset_test, vocab = get_dataset_and_vocab(
+            train_path=self.cf.in_train_path,
+            valid_path=self.cf.in_valid_path,
+            test_path=self.cf.in_test_path,
+            w2v_path=self.cf.in_w2v_path,
+            word_embedding_dim=self.ct.word_embedding_dim,
+            word_min_count=self.ct.word_min_count,
+            train_percent=self.ct.train_percent,
+            valid_percent=self.ct.valid_percent,
+            test_percent=self.ct.test_percent,
+            # truncate_len=120,
+            pad_token=self.ct.pad_token,
+            unk_token=self.ct.unk_token)
 
         # 按batch_size等超参数封装成数据加载器
         iter_train = BucketIterator(
             dataset_train, batch_size=self.ct.train_batch_size, train=True, sort_within_batch=True,
-            sort_key=lambda x: len(x.input), device=self.device)
+            sort_key=lambda x: len(x.text), device=self.device)
         iter_train_eval, iter_valid, iter_test = (
             BucketIterator(
                 dataset, batch_size=self.ct.eval_batch_size, train=False, sort_within_batch=True,
-                sort_key=lambda x: len(x.input), device=self.device)
+                sort_key=lambda x: len(x.text), device=self.device)
             for dataset in (dataset_train, dataset_valid, dataset_test)
         )
-        iter_predict = Iterator(
-            dataset_predict, batch_size=self.ct.eval_batch_size, train=False, shuffle=False,
-            sort=False, device=self.device)
-        return iter_train, iter_train_eval, iter_valid, iter_test, iter_predict, vocab_input, vocab_output
+        return iter_train, iter_train_eval, iter_valid, iter_test, vocab
 
     def _get_model(self, load_checkpoint_path: str or Path = None) -> nn.Module:
         """
@@ -520,19 +461,10 @@ class Experiment(object):
         :return: 实例化的、参数初始化的模型
         """
         Model = MODELS[self.ct.model_name]
-        if self.ct.model_name in ("AttentionSeq2Seq", "AttentionSeq2SeqMultiLayer"):
-            model_args = dict(
-                enc_input_dim=len(self.vocab_input), enc_vocab=self.vocab_input,
-                dec_output_dim=len(self.vocab_output), dec_vocab=self.vocab_output,
-                **self.cm.to_jsonable_dict()
-            )
-        elif self.ct.model_name in ("LanguageModel", ):
-            model_args = dict(
-                vocab_size=len(self.vocab_input), vocab=self.vocab_input,
-                **self.cm.to_jsonable_dict()
-            )
-        else:
-            raise ValueError
+        model_args = dict(
+            vocab=self.vocab,
+            **self.cm.to_jsonable_dict()
+        )
         model: nn.Module = Model(**model_args)
         if load_checkpoint_path is not None:
             checkpoint = torch.load(load_checkpoint_path)
@@ -573,22 +505,8 @@ class Experiment(object):
                 (self.lr_scheduler.__class__.__name__, self.ct.lr_scheduler_name)
 
         # Config中的设定是否矛盾。依据具体任务而定
-        if self.ct.model_name in ("AttentionSeq2Seq", "AttentionSeq2SeqMultiLayer"):
-            assert self.ct.word_embedding_dim == self.cm.enc_emb_dim, \
-                (self.ct.word_embedding_dim, self.cm.enc_emb_dim)
-            assert self.ct.word_embedding_dim == self.cm.dec_emb_dim, \
-                (self.ct.word_embedding_dim, self.cm.dec_emb_dim)
-            assert self.ct.pad_token == self.cm.pad_token, \
-                (self.ct.pad_token, self.cm.pad_token,)
-            assert self.ct.output_init_token == self.cm.output_init_token, \
-                (self.ct.output_init_token, self.cm.output_init_token)
-            assert self.ct.output_eos_token == self.cm.output_eos_token, \
-                (self.ct.output_eos_token == self.cm.output_eos_token)
-        elif self.ct.model_name in ("LanguageModel", ):
-            assert self.ct.word_embedding_dim == self.cm.embed_dim, \
-                (self.ct.word_embedding_dim, self.cm.embed_dim)
-        else:
-            raise ValueError
+        assert self.ct.word_embedding_dim == self.cm.emb_dim, \
+            (self.ct.word_embedding_dim, self.cm.emb_dim)
 
     def _metrics(self, y_true, y_pred) -> dict:
         """

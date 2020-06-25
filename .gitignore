@@ -7,4 +7,7 @@
 *.iml
 out
 gen
-4-text_classification/config.py
+!/4-text_classification/config.py
+.DS_Store
+2-cat_dog/.DS_Store
+2-cat_dog/data/.DS_Store

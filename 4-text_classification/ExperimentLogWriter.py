@@ -20,10 +20,10 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
 try:
-    from .config import ConfigTrain, ConfigFiles, ConfigModel_AttentionSeq2Seq
+    from .config import ConfigTrain, ConfigFiles, ConfigModel_TextCNN
     from .utils import is_jsonable, init_logger, fig_confusion_matrix, fig_images
 except:
-    from config import ConfigTrain, ConfigFiles, ConfigModel_AttentionSeq2Seq
+    from config import ConfigTrain, ConfigFiles, ConfigModel_TextCNN
     from utils import is_jsonable, init_logger, fig_confusion_matrix, fig_images
 
 
@@ -121,15 +121,22 @@ class ExperimentLogWriter(object):
         :return:
         """
         model.eval()
-        try:
-            input_to_model = [t.to(device) for t in input_to_model]
+        def draw(model, input_to_model, data_device, model_device):
+            input_to_model = [t.to(data_device) for t in input_to_model]
+            model.to(model_device)
             with torch.no_grad():
                 self.writer.add_graph(model, input_to_model=input_to_model)
-        except RuntimeError as e:
-            print(f"draw_model_graph:\n{e}")
-            input_to_model = [t.to("cpu") for t in input_to_model]  # 有些版本的tensorboard画计算图不支持cuda
-            with torch.no_grad():
-                self.writer.add_graph(model, input_to_model=input_to_model)
+
+        for data_device, model_device in [(device, device), ("cpu", device), ("cpu", "cpu")]:
+            try:
+                draw(model, input_to_model, data_device, model_device)
+                break
+            except RuntimeError as e:
+                print(f"draw_model_graph:\n{e}")
+                if (data_device, model_device) == ("cpu", "cpu"):
+                    raise e
+
+        model.to(device)
 
     def draw_confusion_matrix(self, confusion_matrix: np.array, graph_name: str, global_step: int=None) -> NoReturn:
         """
@@ -197,23 +204,26 @@ class ExperimentLogWriter(object):
                 all_in_one_name = name.split('.')[-1].split("_")[0]  # "weight" or "bias"
                 self.writer.add_histogram(tag=f"{model_name}/test/all_in_one.{all_in_one_name}", values=show_param, global_step=i//2)
 
-    def draw_find_lr_plot(self, logs, losses):
+    def draw_find_lr_plot(self, lrs, losses):
         """
         用来寻找适合的学习率范围的函数
         :return:
         """
-        fig, ax = plt.subplots()
-        plot = ax.plot(logs[10:-5], losses[10:-5])
+        lrs, losses = np.array(lrs), np.array(losses)
+        fig, ax_loss = plt.subplots()
+        ax_loss.plot(np.log10(lrs)[10:-5], losses[10:-5], label="loss", color="blue")
+        ax_loss.set_xlabel('log10 lr')  # x轴title
+        ax_loss.set_ylabel("loss")  # y轴title
+        ax_loss.legend()  # 图例
+        ax_loss.set_title("find learning rate")  # y可以调整标题的位置
 
-        # 子图ax的标题
-        ax.set_title("find learning rate")  # y可以调整标题的位置
+        # lr图
+        ax_log10_loss = ax_loss.twinx()  # 叠加在原ax_loss图上，共享x轴
+        ax_log10_loss.plot(np.log10(lrs)[10:-5], np.log10(losses)[10:-5], label="log10 loss", color="red")
+        ax_log10_loss.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.2e'))  # y轴数字用保留两位小数的科学技术法表示
+        ax_log10_loss.set_ylabel("log10 loss")  # y轴标签
+        ax_log10_loss.legend()  # 添加图例
 
-        # 设置坐标轴格式
-        # x轴（step）
-        ax.set_xlabel('log10 lr')  # x轴title
-
-        # y轴（二范数）
-        ax.set_ylabel('loss')  # y轴title
         # 保存与显示
         fig.tight_layout()  # 适应窗口大小，否则可能有东西在窗口里画不下
         fig.savefig(self.cf.img_find_lr)
@@ -275,9 +285,6 @@ class ExperimentLogWriter(object):
         ax_lr_step.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.2e'))  # y轴数字用保留两位小数的科学技术法表示
         ax_lr_step.set_ylabel("learning rate")  # y轴标签
         ax_lr_step.legend(["lr"])  # 添加图例
-
-        fig.tight_layout()  # 适应窗口大小，否则可能有东西在窗口里画不下
-        fig.savefig("loss_and_lr_together.png")
 
         # 保存与显示
         fig.tight_layout()  # 适应窗口大小，否则可能有东西在窗口里画不下

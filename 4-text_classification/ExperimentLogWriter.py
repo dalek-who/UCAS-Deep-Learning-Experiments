@@ -10,6 +10,7 @@ from pathlib import Path
 from logging import Logger
 from collections import defaultdict
 from typing import Tuple, Union, Dict, NoReturn
+from collections import Iterable
 import json
 import numpy as np
 import torch
@@ -91,10 +92,12 @@ class ExperimentLogWriter(object):
 
         # 序列生成任务不需要展示这项
         # 混淆矩阵
-        # self._draw_confusion_matrix(confusion_matrix=eval_result["confusion_matrix_train"],
-        #                             graph_name=self.cf.tbx_best_confusion_matrix_train, global_step=epoch)
-        # self._draw_confusion_matrix(confusion_matrix=eval_result["confusion_matrix_valid"],
-        #                             graph_name=self.cf.tbx_best_confusion_matrix_valid, global_step=epoch)
+        self.draw_confusion_matrix(confusion_matrix=eval_result["confusion_matrix_train"],
+                                   graph_name=self.cf.tbx_best_confusion_matrix_train, global_step=epoch,
+                                   categories_list=self.ct.categories_list)
+        self.draw_confusion_matrix(confusion_matrix=eval_result["confusion_matrix_valid"],
+                                   graph_name=self.cf.tbx_best_confusion_matrix_valid, global_step=epoch,
+                                   categories_list=self.ct.categories_list)
 
         # 参数分布变化
         self.draw_parameter_distribution(model, global_step=epoch, is_train=True)
@@ -138,7 +141,7 @@ class ExperimentLogWriter(object):
 
         model.to(device)
 
-    def draw_confusion_matrix(self, confusion_matrix: np.array, graph_name: str, global_step: int=None) -> NoReturn:
+    def draw_confusion_matrix(self, confusion_matrix: np.array, graph_name: str, global_step: int=None, categories_list: list=None) -> NoReturn:
         """
         tensorboard画混淆矩阵
         注：如果混淆矩阵维数过大，会报Locator attempting to generate xxx ticks ([-1.0, ..., xxx]), which exceeds Locator.MAXTICKS，且保存会非常慢
@@ -147,17 +150,17 @@ class ExperimentLogWriter(object):
         :param global_step:  第几个global_step，可以查看混淆矩阵随着step的变化
         :return:
         """
-        categories_list = ["dog", "cat"]
+        categories_list = list(range(confusion_matrix.shape[0])) if categories_list is None else categories_list
         fig_confusion = fig_confusion_matrix(confusion=confusion_matrix, categories_list=categories_list)
         if global_step is None:
             self.writer.add_figure(graph_name, fig_confusion)
         else:
             self.writer.add_figure(graph_name, fig_confusion, global_step=global_step)
 
-    def draw_examples(self, examples: list, graph_name: str, global_step: int=None) -> NoReturn:
+    def draw_text_examples(self, examples: list, graph_name: str, global_step: int=None) -> NoReturn:
         """
-        展示样本。正确样本、错误样本都可以
-        :param examples: 样本
+        展示文本式的样本。正确样本、错误样本都可以
+        :param examples: 样本列表
         :param graph_name: 图的名字
         :param global_step: 第几个global_step
         :return:
@@ -173,8 +176,21 @@ class ExperimentLogWriter(object):
         :param metric_dict: 评测指标
         :return:
         """
-        show_metric_dict = {f"hparam/{k}" : v for k,v in metric_dict.items()} if metric_dict is not None else None  # add_hparams的metric_dict的key需要与add_scalar的曲线名称不同，否则展示时可能有bug
-        self.writer.add_hparams(hparam_dict=hparam_dict, metric_dict=show_metric_dict)
+        def showable_dict(old_dict: dict):
+            # hparam只能展示 int, float, str, bool, or torch.Tensor 型数据
+            if old_dict is None:
+                return None
+            new_dict = dict()
+            for k, v in old_dict.items():
+                if isinstance(v, (int, float, str, bool, torch.Tensor)):
+                    new_dict[f"hparam/{k}"] = v  # add_hparams的metric_dict的key需要与add_scalar的曲线名称不同，否则展示时可能有bug
+                elif isinstance(v, Iterable):
+                    new_dict[f"hparam/{k}"] = str(list(v))
+                else:
+                    raise ValueError((k, v))
+            return new_dict
+        # show_metric_dict = {f"hparam/{k}" : v for k,v in metric_dict.items()} if metric_dict is not None else None
+        self.writer.add_hparams(hparam_dict=showable_dict(hparam_dict), metric_dict=showable_dict(metric_dict))
 
     def draw_parameter_distribution(self, model: nn.Module, global_step: int=None, is_train: bool=False, is_test: bool=False, show_grad: bool=False) -> NoReturn:
         """
@@ -232,13 +248,17 @@ class ExperimentLogWriter(object):
         # fig.canvas.set_window_title("find learning rate")  # 窗口fig的title
         # fig.show()
 
-    def draw_embedding(self):
+    def draw_embedding(self,mat, metadata=None, label_img=None, global_step=None, tag='default'):
         """
         利用tensorboard画Embedding
+        :param mat: embedding矩阵
+        :param metadata: 每个Embedding向量的字符串名称（比如词向量的单词）
+        :param label_img: 每个Embedding的（例如可以展示对图片分类结果的Embedding）
+        :param global_step:
+        :param tag: 图的名称
         :return:
         """
-        # todo
-        pass
+        self.writer.add_embedding(mat, metadata=metadata, label_img=label_img, global_step=global_step, tag=tag)
 
     def draw_attention(self):
         """

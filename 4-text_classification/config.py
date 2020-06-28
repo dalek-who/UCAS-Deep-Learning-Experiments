@@ -29,12 +29,12 @@ class Config(object):
 
 
 class ConfigTrain(Config):
-    num_train_epochs: int = 100
-    train_batch_size: int = 90
-    eval_batch_size: int = 90
+    num_train_epochs: int = 3
+    train_batch_size: int = 100
+    eval_batch_size: int = 100
     learning_rate: float = 3e-3
     eta_min: float = 1e-4
-    max_grad_norm: float = 1.0
+    # max_grad_norm: float = 1.0
     # lr_decay: float = 0.05
     # momentum: float = 0.9
     # weight_decay: float = 0.1
@@ -42,61 +42,29 @@ class ConfigTrain(Config):
     # warmup_proportion: float = 0.1
     seed: int = 42
     select_model_by: str = "acc"
-    model_name: str = "LanguageModel"
+    model_name: str = "TextCNN"
     optimizer_name: str = "Adam"
     lr_scheduler_name: str = "CosineAnnealingLR"
     teacher_forcing_ratio: float = 0.5
     cos_scheduler_half_period_epoch: int = 4  # cos lr scheduler从最高点到最低点用几个epoch（cos周期的一半）
 
-    word_embedding_dim: int = 128
-    window_size: int = 5
-    word_min_count: int = 3
-    train_percent: float = 0.8
-    valid_percent: float = 0.1
-    test_percent: float = 0.1
+    word_embedding_dim: int = 50
+    word_min_count: int = 5
+    train_percent: float = 1.
+    valid_percent: float = 1.
+    test_percent: float = 1.
+    # truncate_len: int = 120
     pad_token: str = "</s>"
     unk_token: str = "<unk>"
-    input_init_token: str = "<INPUT>"
-    output_init_token: str = "<OUTPUT>"
-    output_eos_token: str = "<EOP>"
+    categories_list: list = ["bad", "good"]
 
 
-class ConfigModel_AttentionSeq2Seq(Config):
-    enc_emb_dim: int = 128
-    enc_hid_dim: int = 256
-    enc_dropout: float = 0.5
-
-    dec_emb_dim: int = 128
-    dec_hid_dim: int = 256
-    dec_dropout: float = 0.5
-
-    pad_token: str = "</s>"
-    output_init_token: str = "<OUTPUT>"
-    output_eos_token: str = "<EOP>"
-
-
-class ConfigModel_AttentionSeq2SeqMultiLayer(Config):
-    enc_emb_dim: int = 128
-    enc_hid_dim: int = 256
-    enc_num_layers: int = 2
-    enc_dropout: float = 0.5
-
-    dec_emb_dim: int = 128
-    dec_hid_dim: int = 256
-    dec_num_layers: int = 2
-    dec_dropout: float = 0.5
-
-    pad_token: str = "</s>"
-    output_init_token: str = "<OUTPUT>"
-    output_eos_token: str = "<EOP>"
-
-
-class ConfigModel_LanguageModel(Config):
-    embed_dim: int = 128
-    rnn_hid_dim: int = 256
-    rnn_num_layers: int = 3
-    linear_hid_dim: int = 128
+class ConfigModel_TextCNN(Config):
+    emb_dim: int = 50
+    filter_sizes: list = [2, 3, 4]
+    num_each_filter: int = 100
     dropout: float = 0.5
+    num_labels: int = 2
 
 
 class ConfigFiles(Config):
@@ -105,7 +73,7 @@ class ConfigFiles(Config):
         self.DIR_BASE = Path(".")
         assert "main.py" in os.listdir(self.DIR_BASE), self.DIR_BASE.absolute()
         self.DIR_DATA = self.DIR_BASE / "data"
-        self.DIR_W2V_CACHE: Path = self.DIR_BASE / 'vector_cache'
+        # self.DIR_W2V_CACHE: Path = self.DIR_BASE / 'vector_cache'
         self.DIR_OUTPUT = self.DIR_BASE / f"output/{'DEBUG-' if debug else ''}{datetime.now().strftime('%b%d_%H-%M-%S')}_{socket.gethostname()}__{commit}"
         self.DIR_CHECKPOINT = self.DIR_OUTPUT / "checkpoint"
         self.DIR_CHECKPOINT_FAIL = self.DIR_OUTPUT / "X_checkpoint_fail"
@@ -121,9 +89,10 @@ class ConfigFiles(Config):
         else:
             self.load_checkpoint: Path = None
         #   data
-        self.in_train_valid_test_data_path: Path = self.DIR_DATA / "tang.npz"
-        self.in_predict_data_path: Path = self.DIR_DATA / "predict_input.txt"
-        self.in_preprocessed_train_valid_test_data_path: Path = self.DIR_DATA / "preprocessed.tsv"
+        self.in_train_path: Path = self.DIR_DATA / "train.txt"
+        self.in_valid_path: Path = self.DIR_DATA / "validation.txt"
+        self.in_test_path: Path = self.DIR_DATA / "test.txt"
+        self.in_w2v_path: Path = self.DIR_DATA / "wiki_word2vec_50.bin"
 
         # 不做备份的文件/目录列表：
         self.no_backup_list = ["dev", "output", "data", "dataset_old", "nohup.out", "poem.tsv", "__pycache__"]
@@ -143,7 +112,7 @@ class ConfigFiles(Config):
         self.out_success_train: Path = self.DIR_OUTPUT / "zzz_SUCCESS_train.txt"
         self.out_success_predict: Path = self.DIR_OUTPUT / "zzz_SUCCESS_predict.txt"
 
-        # images
+        # experiment log images
         self.img_find_lr: Path = self.DIR_IMG / "find_lr.png"
         self.img_loss_and_lr_together: Path = self.DIR_IMG / "loss_and_lr_together.png"
 

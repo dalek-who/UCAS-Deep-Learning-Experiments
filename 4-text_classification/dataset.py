@@ -60,6 +60,17 @@ def get_dataset_and_vocab(
     dataset_valid = TabularDataset(path=valid_path, format="TSV", fields=fields)
     dataset_test = TabularDataset(path=test_path, format="TSV", fields=fields)
 
+    # 有时候数据集有空行，会生成空的example，在生成batch时出错
+    for i, example in enumerate(dataset_train):
+        assert hasattr(example, "label"), i
+        assert hasattr(example, "text"), i
+    for i, example in enumerate(dataset_valid):
+        assert hasattr(example, "label"), i
+        assert hasattr(example, "text"), i
+    for i, example in enumerate(dataset_test):
+        assert hasattr(example, "label"), i
+        assert hasattr(example, "text"), i
+
     # 划分数据集
     if train_percent < 1.:
         dataset_train.examples = dataset_train.examples[:int(train_percent * len(dataset_train))]

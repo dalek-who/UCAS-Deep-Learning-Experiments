@@ -127,7 +127,7 @@ class Experiment(object):
             "acc": float(metrics["acc"]),
             # "num_error": int(len(error_index)),
             "num_error": int((label_true != label_pred).sum()),
-            # "confusion_matrix": metrics["confusion_matrix"],  # 序列生成任务，因为词表很大，以字为单位的confusion_matrix过大
+            "confusion_matrix": metrics["confusion_matrix"],
         }
         # return result, error_subset, error_index
         return result
@@ -150,7 +150,7 @@ class Experiment(object):
             for bid, batch in enumerate(tqdm(iter_train, desc="Train batch:")):
                 loss, batch_size, _, _, _ = self._forward_batch(batch, train=True, has_label=True)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.ct.max_grad_norm)  # 梯度剪裁，把过大的梯度限定到固定值
+                # torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.ct.max_grad_norm)  # 梯度剪裁，把过大的梯度限定到固定值
                 lr = self.optimizer.state_dict()['param_groups'][0]['lr']
                 self.writer.draw_each_step(global_step=global_step, loss=loss.item(), lr=lr) # 画图
                 if bid==0:
@@ -183,7 +183,7 @@ class Experiment(object):
         测试集上的效果
         :param iter_data:
         """
-        eval_result, poem_predict_list = self.do_evaluation(iter_data=iter_data)  # type: dict, list
+        eval_result = self.do_evaluation(iter_data=iter_data)  # type: dict
         eval_result_info = {k:v for k,v in eval_result.items() if isinstance(v, (int, float, str))}
         show_info = f'\nTest result: \n' + "\n".join([f' {key}: {value:.4f} ' for key, value in eval_result_info.items()])
         self.logger.info(show_info)
@@ -198,13 +198,11 @@ class Experiment(object):
         # # 最好的模型的网络图
         # # 暂时用处不大，而且容易爆显存，先放弃了
         # batch = next(iter(iter_data))
-        # src, src_len = batch.input
-        # trg, trg_len = batch.output
-        # input_to_model = [src, src_len, trg, torch.tensor(0)]
+        # input_to_model = [batch.text]
         # self.writer.draw_model_graph(model=self.model, input_to_model=input_to_model, device=self.device)
 
         # 展示预测样本
-        self.writer.draw_examples(examples=poem_predict_list, graph_name=self.cf.tbx_test_predict)
+        # self.writer.draw_examples(examples=poem_predict_list, graph_name=self.cf.tbx_test_predict)
 
         # 序列生成任务不需要分析这个
         # 展示错误样本
@@ -446,12 +444,16 @@ class Experiment(object):
         iter_train = BucketIterator(
             dataset_train, batch_size=self.ct.train_batch_size, train=True, sort_within_batch=True,
             sort_key=lambda x: len(x.text), device=self.device)
-        iter_train_eval, iter_valid, iter_test = (
+        iter_train_eval, iter_valid, iter_test = [
             BucketIterator(
-                dataset, batch_size=self.ct.eval_batch_size, train=False, sort_within_batch=True,
+                dataset, batch_size=self.ct.train_batch_size, train=True, sort_within_batch=True,
                 sort_key=lambda x: len(x.text), device=self.device)
             for dataset in (dataset_train, dataset_valid, dataset_test)
-        )
+        ]
+        assert next(iter(iter_train))
+        assert next(iter(iter_train_eval))
+        assert next(iter(iter_valid))
+        assert next(iter(iter_test))
         return iter_train, iter_train_eval, iter_valid, iter_test, vocab
 
     def _get_model(self, load_checkpoint_path: str or Path = None) -> nn.Module:

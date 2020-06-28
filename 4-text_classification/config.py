@@ -117,12 +117,14 @@ class ConfigFiles(Config):
         self.img_loss_and_lr_together: Path = self.DIR_IMG / "loss_and_lr_together.png"
 
         # tensorboardX records:
+        # scalars
         self.tbx_step_train_loss: str = "scalars/step_train_loss"
         self.tbx_step_learning_rate: str = "scalars/step_learning_rate"
         self.tbx_epoch_loss: str = "scalars/epoch_loss"
         self.tbx_epoch_acc: str = "scalars/epoch_acc"
         self.tbx_epoch_f1: str = "scalars/epoch_f1"
         self.tbx_loss_and_lr: str = "scalars/step_loss_and_lr"  # 一个把loss和lr画在一起的图，便于比较lr和loss变化速度的关系
+        # image
         self.tbx_epoch_confusion_matrix_train: str = "images/confusion_matrix/epoch_train"
         self.tbx_epoch_confusion_matrix_valid: str = "images/confusion_matrix/epoch_valid"
         self.tbx_best_confusion_matrix_train: str = "images/confusion_matrix/best_train"
@@ -130,10 +132,13 @@ class ConfigFiles(Config):
         self.tbx_confusion_matrix_test: str = "images/confusion_matrix/test"
         self.tbx_find_lr: str = "images/find_lr"
         self.tbx_img_lr_and_loss_together: str = "images/loss_and_lr_together"
+        # text
         self.tbx_train_predict: str = "text/predict_examples/train"
         self.tbx_valid_predict: str = "text/predict_examples/valid"
         self.tbx_test_predict: str = "text/predict_examples/test"
         self.tbx_predict_predict: str = "text/predict_examples/predict"
+        # embedding
+        self.tbx_emb: str = "emb/word_embedding"
 
 
 if __name__=="__main__":

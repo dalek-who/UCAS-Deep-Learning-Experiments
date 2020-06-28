@@ -13,7 +13,7 @@ class TextCNN(nn.Module):
         super(self.__class__, self).__init__()
         assert len(filter_sizes)==len(set(filter_sizes)), filter_sizes
         self.vocab: Vocab = vocab
-        self.embedding = nn.Embedding(len(vocab), emb_dim).from_pretrained(vocab.vectors)
+        self.embedding = nn.Embedding(len(vocab), emb_dim).from_pretrained(vocab.vectors, freeze=False)
         self.conv_kernels = nn.ModuleDict({
             f"conv_{ks}": nn.Conv2d(in_channels=1, out_channels=num_each_filter, kernel_size=(ks, emb_dim))
             for ks in filter_sizes

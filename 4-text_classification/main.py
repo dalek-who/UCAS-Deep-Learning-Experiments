@@ -165,7 +165,7 @@ class Experiment(object):
             eval_result = dict(**{k+"_train": v for k,v in eval_train.items()},
                                **{k+"_valid": v for k,v in eval_valid.items()})
             eval_result["epoch"] = epoch
-            self.writer.draw_each_epoch(epoch=epoch, eval_result=eval_result, model=self.model)# 画图
+            self.writer.draw_each_epoch(epoch=epoch, eval_result=eval_result, model=self.model, vocab=self.vocab)# 画图
             self._create_checkpoint(epoch=epoch, global_step=global_step, eval_result=eval_result)
         if load_best_after_train:
             if num_train_epochs>0:

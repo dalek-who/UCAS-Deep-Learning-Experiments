@@ -67,7 +67,7 @@ class ExperimentLogWriter(object):
 
         self.writer.add_scalars(self.cf.tbx_loss_and_lr, {"loss": loss, "lr": lr}, global_step=global_step)
 
-    def draw_each_epoch(self, epoch, eval_result, model) -> NoReturn:
+    def draw_each_epoch(self, epoch, eval_result, model, vocab) -> NoReturn:
         """
         每个train epoch需要画的图
         :param epoch: 当前是第几个Epoch
@@ -102,6 +102,9 @@ class ExperimentLogWriter(object):
         # 参数分布变化
         self.draw_parameter_distribution(model, global_step=epoch, is_train=True)
 
+        # 画Embedding
+        self.writer.add_embedding(mat=model.embedding.weight.data, metadata=vocab.itos, global_step=epoch, tag=self.cf.tbx_emb)
+
     def draw_best(self) -> NoReturn:
         """
         训练完后最好的模型，画这些东西
@@ -115,6 +118,13 @@ class ExperimentLogWriter(object):
         #                             graph_name=self.cf.tbx_best_confusion_matrix_valid)
 
         pass
+
+
+    """
+    # 以上是整合功能
+    # #########################################################
+    # 以下是基础功能
+    """
 
     def draw_model_graph(self, model: nn.Module, input_to_model, device) -> NoReturn:
         """
@@ -248,18 +258,6 @@ class ExperimentLogWriter(object):
         # fig.canvas.set_window_title("find learning rate")  # 窗口fig的title
         # fig.show()
 
-    def draw_embedding(self,mat, metadata=None, label_img=None, global_step=None, tag='default'):
-        """
-        利用tensorboard画Embedding
-        :param mat: embedding矩阵
-        :param metadata: 每个Embedding向量的字符串名称（比如词向量的单词）
-        :param label_img: 每个Embedding的（例如可以展示对图片分类结果的Embedding）
-        :param global_step:
-        :param tag: 图的名称
-        :return:
-        """
-        self.writer.add_embedding(mat, metadata=metadata, label_img=label_img, global_step=global_step, tag=tag)
-
     def draw_attention(self):
         """
         画Attention
@@ -283,16 +281,16 @@ class ExperimentLogWriter(object):
 
         # epoch和step的loss图
         fig, ax_loss_step = plt.subplots()
-        ax_loss_step.plot(global_step, step_loss, label="train loss")
-        ax_loss_step.plot(epoch_to_global_step, epoch_loss, label="epoch loss")
+        plot_loss_step = ax_loss_step.plot(global_step, step_loss, label="step train loss")
+        plot_loss_epoch = ax_loss_step.plot(epoch_to_global_step, epoch_loss, label="epoch train loss")
         ax_loss_step.set_xlabel("global step")  # x轴的标签
         ax_loss_step.set_ylabel("loss")  # y轴的标签
-        ax_loss_step.legend()  # 添加图例
+        # ax_loss_step.legend()  # 添加图例  # 后面把多个ax的图例统一添加到一起
         ax_loss_step.grid()  # 背景显示网格线
 
         # 叠加一个新的图用来标epoch x轴刻度
         # epoch loss不要画在这个子图上，否则图例与train loss的不在一个方格里
-        epoch_gap = 10  # 每隔多少epoch画个刻度
+        epoch_gap = max(1, int(np.ceil(len(epoch_loss)/10)))  # 每隔多少epoch画个刻度
         ax_loss_epoch = ax_loss_step.twiny()  # 叠加在原ax_loss_step图上，共享y轴
         ax_loss_epoch.set_xlim(ax_loss_step.get_xlim())  # x轴对齐
         ax_loss_epoch.set_xticks(epoch_to_global_step[::epoch_gap])  # 画epoch刻度线
@@ -301,10 +299,15 @@ class ExperimentLogWriter(object):
 
         # lr图
         ax_lr_step = ax_loss_step.twinx()  # 叠加在原ax_loss_step图上，共享x轴
-        ax_lr_step.plot(global_step, step_lr, color="red")
+        plot_lr_step = ax_lr_step.plot(global_step, step_lr, color="red", label="lr")
         ax_lr_step.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.2e'))  # y轴数字用保留两位小数的科学技术法表示
         ax_lr_step.set_ylabel("learning rate")  # y轴标签
-        ax_lr_step.legend(["lr"])  # 添加图例
+        # ax_lr_step.legend(["lr"])  # 添加图例  # 后面把多个ax的图例统一添加到一起
+
+        # 三个图例画在一起。否则每个ax会单独生成一个图例
+        plots = plot_loss_step + plot_loss_epoch + plot_lr_step
+        labs = [p.get_label() for p in plots]
+        ax_loss_step.legend(plots, labs)
 
         # 保存与显示
         fig.tight_layout()  # 适应窗口大小，否则可能有东西在窗口里画不下

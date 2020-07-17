@@ -75,20 +75,38 @@ class ExperimentLogWriter(object):
         :param model: 当前的模型，用来画权重、梯度分布的
         :return:
         """
-        self.writer.add_scalars(self.cf.tbx_epoch_loss, {"epoch_loss_train": eval_result["loss_mean_train"],
-                                                         "epoch_loss_valid": eval_result["loss_mean_valid"]}, epoch)
-        self.all_scalars["epoch_loss_train"][epoch] = eval_result["loss_mean_train"]
-        self.all_scalars["epoch_loss_valid"][epoch] = eval_result["loss_mean_valid"]
+        metrics_and_scalar_name = {
+            "loss_mean": self.cf.tbx_epoch_loss_mean,
+            "loss_total": self.cf.tbx_epoch_loss_total,
+            "acc": self.cf.tbx_epoch_acc,
+            "p": self.cf.tbx_epoch_p,
+            "r": self.cf.tbx_epoch_r,
+            "f1": self.cf.tbx_epoch_f1,
+        }
 
-        self.writer.add_scalars(self.cf.tbx_epoch_acc, {"epoch_acc_train": eval_result["acc_train"],
-                                                        "epoch_acc_valid": eval_result["acc_valid"]}, epoch)
-        self.all_scalars["epoch_acc_train"][epoch] = eval_result["acc_train"]
-        self.all_scalars["epoch_acc_valid"][epoch] = eval_result["acc_valid"]
+        for m, scalar_name in metrics_and_scalar_name.items():
+            self.writer.add_scalars(scalar_name, {f"epoch_{m}_train": eval_result[f"{m}_train"],
+                                                  f"epoch_{m}_valid": eval_result[f"{m}_valid"]}, epoch)
+            self.all_scalars[f"epoch_{m}_train"][epoch] = eval_result[f"{m}_train"]
+            self.all_scalars[f"epoch_{m}_valid"][epoch] = eval_result[f"{m}_valid"]
 
-        self.writer.add_scalars(self.cf.tbx_epoch_f1, {"epoch_f1_train": eval_result["f1_train"],
-                                                       "epoch_f1_valid": eval_result["f1_valid"]}, epoch)
-        self.all_scalars["epoch_f1_train"][epoch] = eval_result["f1_train"]
-        self.all_scalars["epoch_f1_valid"][epoch] = eval_result["f1_valid"]
+        # # loss mean
+        # self.writer.add_scalars(self.cf.tbx_epoch_loss, {"epoch_loss_train": eval_result["loss_mean_train"],
+        #                                                  "epoch_loss_valid": eval_result["loss_mean_valid"]}, epoch)
+        # self.all_scalars["epoch_loss_train"][epoch] = eval_result["loss_mean_train"]
+        # self.all_scalars["epoch_loss_valid"][epoch] = eval_result["loss_mean_valid"]
+        #
+        # # acc
+        # self.writer.add_scalars(self.cf.tbx_epoch_acc, {"epoch_acc_train": eval_result["acc_train"],
+        #                                                 "epoch_acc_valid": eval_result["acc_valid"]}, epoch)
+        # self.all_scalars["epoch_acc_train"][epoch] = eval_result["acc_train"]
+        # self.all_scalars["epoch_acc_valid"][epoch] = eval_result["acc_valid"]
+        #
+        # # f1
+        # self.writer.add_scalars(self.cf.tbx_epoch_f1, {"epoch_f1_train": eval_result["f1_train"],
+        #                                                "epoch_f1_valid": eval_result["f1_valid"]}, epoch)
+        # self.all_scalars["epoch_f1_train"][epoch] = eval_result["f1_train"]
+        # self.all_scalars["epoch_f1_valid"][epoch] = eval_result["f1_valid"]
 
         # 序列生成任务不需要展示这项
         # 混淆矩阵
@@ -202,6 +220,31 @@ class ExperimentLogWriter(object):
         # show_metric_dict = {f"hparam/{k}" : v for k,v in metric_dict.items()} if metric_dict is not None else None
         self.writer.add_hparams(hparam_dict=showable_dict(hparam_dict), metric_dict=showable_dict(metric_dict))
 
+    def draw_gradient_distribution(self, model, tag_distribution_grad: str, tag_scalar_grad_mean: str, tag_scalar_grad_std: str, global_step: int=None):
+        """
+        画梯度的分布图 + 梯度平均值scalar + 梯度标准差scalar
+        其中，每个分布图在tensorboard中都会自动产生两张图：histogram和distribution，一个是正视图，另一个是俯视图
+        :param model: 待画图的模型
+        :param tag_distribution_grad: 分布图的名字
+        :param tag_scalar_grad_mean: 梯度平均值的scalar名字
+        :param tag_scalar_grad_std: 梯度标准差的scalar名字
+        :param global_step: 当前是第几个global_step
+        :return:
+        """
+        model_name = model.__class__.__name__
+        for i, (name, param) in enumerate(model.named_parameters()):
+            # train和test不能画在一张图上，否则会错乱
+            if not param.requires_grad:
+                continue
+            show_param: np.ndarray = param.grad.cpu().detach().numpy()
+            assert show_param is not None
+            # 梯度分布
+            self.writer.add_histogram(tag=f"{model_name}/{tag_distribution_grad}/{name}", values=show_param, global_step=global_step)
+            # 梯度均值
+            self.writer.add_scalars(f"{tag_scalar_grad_mean}/{model_name}/{name}", {"grad_mean": show_param.mean()}, global_step)
+            # 梯度标准差
+            self.writer.add_scalars(f"{tag_scalar_grad_std}/{model_name}/{name}", {"grad_std": show_param.std()}, global_step)
+
     def draw_parameter_distribution(self, model: nn.Module, global_step: int=None, is_train: bool=False, is_test: bool=False, show_grad: bool=False) -> NoReturn:
         """
         tensorboard画模型的参数分布
@@ -274,7 +317,7 @@ class ExperimentLogWriter(object):
         global_step = [int(step) for step in self.all_scalars['train loss']]
         step_loss = list(self.all_scalars['train loss'].values())
         step_lr = list(self.all_scalars['learning rate'].values())
-        epoch_loss = list(self.all_scalars['epoch_loss_train'].values())
+        epoch_loss = list(self.all_scalars['epoch_loss_mean_train'].values())
         # 没直接记录一个epoch到底有几个step，把整个step
         step_of_each_epoch = len(global_step) // len(epoch_loss)  # 一个epoch有几个step
         epoch_to_global_step = [(i + 1) * step_of_each_epoch - 1 for i in range(len(epoch_loss))]  # 每个epoch对应的是第几个step

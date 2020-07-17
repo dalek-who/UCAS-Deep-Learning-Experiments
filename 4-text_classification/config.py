@@ -118,12 +118,19 @@ class ConfigFiles(Config):
 
         # tensorboardX records:
         # scalars
-        self.tbx_step_train_loss: str = "scalars/step_train_loss"
-        self.tbx_step_learning_rate: str = "scalars/step_learning_rate"
-        self.tbx_epoch_loss: str = "scalars/epoch_loss"
-        self.tbx_epoch_acc: str = "scalars/epoch_acc"
-        self.tbx_epoch_f1: str = "scalars/epoch_f1"
-        self.tbx_loss_and_lr: str = "scalars/step_loss_and_lr"  # 一个把loss和lr画在一起的图，便于比较lr和loss变化速度的关系
+        self.tbx_step_train_loss: str = "loss/step_train_loss"
+        self.tbx_epoch_loss_mean: str = "loss/epoch_loss_mean"
+        self.tbx_epoch_loss_total: str = "loss/epoch_loss_total"
+        self.tbx_loss_and_lr: str = "loss/step_loss_and_lr"  # 一个把loss和lr画在一起的图，便于比较lr和loss变化速度的关系
+        self.tbx_step_learning_rate: str = "lr/step_learning_rate"
+        self.tbx_epoch_acc: str = "metrics/epoch_acc"
+        self.tbx_epoch_p: str = "metrics/epoch_p"
+        self.tbx_epoch_r: str = "metrics/epoch_r"
+        self.tbx_epoch_f1: str = "metrics/epoch_f1"
+        self.tbx_scalar_grad_mean: str = "grad/mean"  # 梯度平均值
+        self.tbx_scalar_grad_std: str = "grad/std"  # 梯度标准差
+        self.tbx_scalar_param_mean: str = "param/mean"  # 参数平均值
+        self.tbx_scalar_param_mean_std: str = "param/std"  # 参数标准差
         # image
         self.tbx_epoch_confusion_matrix_train: str = "images/confusion_matrix/epoch_train"
         self.tbx_epoch_confusion_matrix_valid: str = "images/confusion_matrix/epoch_valid"
@@ -139,6 +146,10 @@ class ConfigFiles(Config):
         self.tbx_predict_predict: str = "text/predict_examples/predict"
         # embedding
         self.tbx_emb: str = "emb/word_embedding"
+        # distribution
+        self.tbx_distribution_train: str = "distribution/train"
+        self.tbx_distribution_test: str = "distribution/test"
+        self.tbx_distribution_grad: str = "distribution/grad"
 
 
 if __name__=="__main__":

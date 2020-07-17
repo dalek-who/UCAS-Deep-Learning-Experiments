@@ -153,8 +153,14 @@ class Experiment(object):
                 # torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.ct.max_grad_norm)  # 梯度剪裁，把过大的梯度限定到固定值
                 lr = self.optimizer.state_dict()['param_groups'][0]['lr']
                 self.writer.draw_each_step(global_step=global_step, loss=loss.item(), lr=lr) # 画图
-                if bid==0:
-                    self.writer.draw_parameter_distribution(self.model, global_step=epoch, is_train=True, show_grad=True)  # 画梯度分布图。需要在zero_grad之前
+                if bid == 0:  # 画梯度分布图。需要在zero_grad之前
+                    # self.writer.draw_parameter_distribution(self.model, global_step=epoch, is_train=True, show_grad=True)
+                    self.writer.draw_gradient_distribution(
+                        self.model, global_step=epoch,
+                        tag_distribution_grad=self.cf.tbx_distribution_grad,
+                        tag_scalar_grad_mean=self.cf.tbx_scalar_grad_mean,
+                        tag_scalar_grad_std=self.cf.tbx_scalar_grad_std,
+                    )
                 self.optimizer.step()
                 self.model.zero_grad()
                 self.delete_log = False

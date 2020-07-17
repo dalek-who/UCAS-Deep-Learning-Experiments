@@ -75,6 +75,7 @@ class ExperimentLogWriter(object):
         :param model: 当前的模型，用来画权重、梯度分布的
         :return:
         """
+        # 所有可以用scalar展示的metrics，包括loss
         metrics_and_scalar_name = {
             "loss_mean": self.cf.tbx_epoch_loss_mean,
             "loss_total": self.cf.tbx_epoch_loss_total,
@@ -90,24 +91,6 @@ class ExperimentLogWriter(object):
             self.all_scalars[f"epoch_{m}_train"][epoch] = eval_result[f"{m}_train"]
             self.all_scalars[f"epoch_{m}_valid"][epoch] = eval_result[f"{m}_valid"]
 
-        # # loss mean
-        # self.writer.add_scalars(self.cf.tbx_epoch_loss, {"epoch_loss_train": eval_result["loss_mean_train"],
-        #                                                  "epoch_loss_valid": eval_result["loss_mean_valid"]}, epoch)
-        # self.all_scalars["epoch_loss_train"][epoch] = eval_result["loss_mean_train"]
-        # self.all_scalars["epoch_loss_valid"][epoch] = eval_result["loss_mean_valid"]
-        #
-        # # acc
-        # self.writer.add_scalars(self.cf.tbx_epoch_acc, {"epoch_acc_train": eval_result["acc_train"],
-        #                                                 "epoch_acc_valid": eval_result["acc_valid"]}, epoch)
-        # self.all_scalars["epoch_acc_train"][epoch] = eval_result["acc_train"]
-        # self.all_scalars["epoch_acc_valid"][epoch] = eval_result["acc_valid"]
-        #
-        # # f1
-        # self.writer.add_scalars(self.cf.tbx_epoch_f1, {"epoch_f1_train": eval_result["f1_train"],
-        #                                                "epoch_f1_valid": eval_result["f1_valid"]}, epoch)
-        # self.all_scalars["epoch_f1_train"][epoch] = eval_result["f1_train"]
-        # self.all_scalars["epoch_f1_valid"][epoch] = eval_result["f1_valid"]
-
         # 序列生成任务不需要展示这项
         # 混淆矩阵
         self.draw_confusion_matrix(confusion_matrix=eval_result["confusion_matrix_train"],
@@ -118,7 +101,11 @@ class ExperimentLogWriter(object):
                                    categories_list=self.ct.categories_list)
 
         # 参数分布变化
-        self.draw_parameter_distribution(model, global_step=epoch, is_train=True)
+        self.draw_parameter_distribution(
+            model, global_step=epoch, is_test=False,
+            tag_distribution_param=self.cf.tbx_distribution_train_param,
+            tag_scalar_param_mean=self.cf.tbx_scalar_param_mean,
+            tag_scalar_param_std=self.cf.tbx_scalar_param_mean_std)
 
         # 画Embedding
         self.writer.add_embedding(mat=model.embedding.weight.data, metadata=vocab.itos, global_step=epoch, tag=self.cf.tbx_emb)
@@ -220,7 +207,7 @@ class ExperimentLogWriter(object):
         # show_metric_dict = {f"hparam/{k}" : v for k,v in metric_dict.items()} if metric_dict is not None else None
         self.writer.add_hparams(hparam_dict=showable_dict(hparam_dict), metric_dict=showable_dict(metric_dict))
 
-    def draw_gradient_distribution(self, model, tag_distribution_grad: str, tag_scalar_grad_mean: str, tag_scalar_grad_std: str, global_step: int=None):
+    def draw_gradient_distribution(self, model: nn.Module, tag_distribution_grad: str, tag_scalar_grad_mean: str, tag_scalar_grad_std: str, global_step: int=None):
         """
         画梯度的分布图 + 梯度平均值scalar + 梯度标准差scalar
         其中，每个分布图在tensorboard中都会自动产生两张图：histogram和distribution，一个是正视图，另一个是俯视图
@@ -245,7 +232,9 @@ class ExperimentLogWriter(object):
             # 梯度标准差
             self.writer.add_scalars(f"{tag_scalar_grad_std}/{model_name}/{name}", {"grad_std": show_param.std()}, global_step)
 
-    def draw_parameter_distribution(self, model: nn.Module, global_step: int=None, is_train: bool=False, is_test: bool=False, show_grad: bool=False) -> NoReturn:
+    def draw_parameter_distribution(self, model: nn.Module,
+                                    tag_distribution_param: str, tag_scalar_param_mean: str=None, tag_scalar_param_std: str=None,
+                                    global_step: int=None, is_test: bool=False) -> NoReturn:
         """
         tensorboard画模型的参数分布
         每个分布图在tensorboard中都会自动产生两张图：histogram和distribution，一个是正视图，另一个是俯视图
@@ -256,22 +245,35 @@ class ExperimentLogWriter(object):
         :param show_grad: 画训练时每个参数的梯度直方图
         :return:
         """
-        assert is_train ^ is_test, (is_train, is_test)  # ^是异或
-        assert not show_grad or is_train, (show_grad, is_train)  # show_grad -> is_train
         model_name = model.__class__.__name__
+        all_in_one = {
+            "weight": [],
+            "bias": []
+        }
         for i, (name, param) in enumerate(model.named_parameters()):
             # train和test不能画在一张图上，否则会错乱
-            if show_grad and not param.requires_grad:
-                continue
-            show_param = param.grad.cpu().detach().numpy() if show_grad else param.cpu().detach().numpy()
+            show_param = param.cpu().detach().numpy()
             assert show_param is not None
-            if is_train:
-                tag = f"{model_name}/{'grad' if show_grad else 'train'}/{name}"
-                self.writer.add_histogram(tag=tag, values=show_param, global_step=global_step)
-            if is_test:
-                self.writer.add_histogram(tag=f"{model_name}/test/{name}", values=show_param)
-                all_in_one_name = name.split('.')[-1].split("_")[0]  # "weight" or "bias"
-                self.writer.add_histogram(tag=f"{model_name}/test/all_in_one.{all_in_one_name}", values=show_param, global_step=i//2)
+            # 参数分布
+            self.writer.add_histogram(tag=f"{model_name}/{tag_distribution_param}/{name}", values=show_param, global_step=global_step)
+            if not is_test:
+                # 参数均值
+                assert tag_scalar_param_mean, tag_scalar_param_mean
+                self.writer.add_scalars(f"{tag_scalar_param_mean}/{model_name}/{name}", {"grad_mean": show_param.mean()}, global_step)
+                # 参数标准差
+                assert tag_scalar_param_std, tag_scalar_param_std
+                self.writer.add_scalars(f"{tag_scalar_param_std}/{model_name}/{name}", {"grad_std": show_param.std()}, global_step)
+
+            # 把所有参数直方图按层的顺序画在一起的图(all_in_one)
+            all_in_one_name = name.split('.')[-1].split("_")[0]  # "weight" or "bias"
+            all_in_one[all_in_one_name].append(show_param)
+
+        # 把所有参数直方图按层的顺序画在一起的图(all_in_one)
+        if is_test:
+            for all_in_one_name, all_in_one_list in all_in_one.items():
+                for i, show_param in enumerate(all_in_one_list):
+                    self.writer.add_histogram(tag=f"{model_name}/test/all_in_one.{all_in_one_name}", values=show_param, global_step=i)
+
 
     def draw_find_lr_plot(self, lrs, losses):
         """

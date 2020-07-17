@@ -199,7 +199,7 @@ class Experiment(object):
         self.writer.draw_hyper_param(hparam_dict=hparam_dict, metric_dict=eval_result_info)
 
         # 展示各层参数的分布情况
-        self.writer.draw_parameter_distribution(self.model, is_test=True)
+        self.writer.draw_parameter_distribution(self.model, is_test=True, tag_distribution_param=self.cf.tbx_distribution_test_param)
 
         # # 最好的模型的网络图
         # # 暂时用处不大，而且容易爆显存，先放弃了

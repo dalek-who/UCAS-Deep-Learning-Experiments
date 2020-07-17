@@ -147,8 +147,8 @@ class ConfigFiles(Config):
         # embedding
         self.tbx_emb: str = "emb/word_embedding"
         # distribution
-        self.tbx_distribution_train: str = "distribution/train"
-        self.tbx_distribution_test: str = "distribution/test"
+        self.tbx_distribution_train_param: str = "distribution/train_param"
+        self.tbx_distribution_test_param: str = "distribution/test_param"
         self.tbx_distribution_grad: str = "distribution/grad"
 
 
